@@ -2,279 +2,410 @@
 <html lang="th">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pixel Life 🌸🌙</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Pixel Life 2.5D - iPad & Touch Supported 🌸🌙</title>
     <style>
-        body { margin: 0; background: #333; display: flex; justify-content: center; align-items: center; height: 100vh; color: white; font-family: 'Courier New', Courier, monospace; overflow: hidden; }
-        #gameCanvas { border: 4px solid #fff; image-rendering: pixelated; background: #87CEEB; }
-        #ui-overlay { position: absolute; top: 20px; left: 20px; background: rgba(0,0,0,0.7); padding: 10px; border-radius: 5px; pointer-events: none; }
-        .pixel-text { font-size: 16px; }
+        * { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', Courier, monospace; touch-action: none; }
+        #canvas-container { width: 100vw; height: 100vh; }
+        
+        /* UI สำหรับหน้าจอ */
+        #ui-overlay {
+            position: absolute; top: 15px; left: 15px;
+            background: rgba(15, 15, 25, 0.75); color: white;
+            padding: 10px 16px; border-radius: 12px; pointer-events: none;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(8px);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+        .pixel-text { font-size: 13px; margin-bottom: 4px; }
+        
+        /* กล่องบทพูด */
+        #dialogue-box {
+            position: absolute; bottom: 120px; left: 50%; transform: translateX(-50%);
+            background: rgba(255, 255, 255, 0.92); color: #111;
+            padding: 10px 20px; border-radius: 20px; font-weight: bold;
+            display: none; border: 2px solid #fff; pointer-events: none;
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.5), 0 8px 25px rgba(0,0,0,0.4);
+            font-size: 14px; text-align: center;
+        }
+
+        /* ปุ่มกดสำหรับ iPad / Touch Screen */
+        #touch-controls { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        
+        /* จอยสติ๊กซ้ายล่าง */
+        #joystick-zone {
+            position: absolute; bottom: 30px; left: 30px;
+            width: 120px; height: 120px;
+            background: rgba(255, 255, 255, 0.15);
+            border: 2px solid rgba(255, 255, 255, 0.4);
+            border-radius: 50%; pointer-events: auto;
+            backdrop-filter: blur(4px);
+        }
+        #joystick-knob {
+            position: absolute; top: 35px; left: 35px;
+            width: 50px; height: 50px;
+            background: rgba(255, 255, 255, 0.6);
+            border-radius: 50%;
+            box-shadow: 0 0 10px rgba(0,0,0,0.3);
+        }
+
+        /* ปุ่มสลับกลางวัน/กลางคืน ขวาล่าง */
+        #btn-toggle {
+            position: absolute; bottom: 40px; right: 30px;
+            width: 70px; height: 70px;
+            background: rgba(255, 255, 255, 0.25);
+            border: 2px solid rgba(255, 255, 255, 0.6);
+            border-radius: 50%; pointer-events: auto;
+            color: white; font-size: 28px;
+            display: flex; justify-content: center; align-items: center;
+            backdrop-filter: blur(4px);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            active { transform: scale(0.92); }
+        }
     </style>
+    <!-- Three.js สำหรับ กราฟิก 3D -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
 
-<canvas id="gameCanvas" width="800" height="600"></canvas>
+<div id="canvas-container"></div>
 
 <div id="ui-overlay">
-    <div class="pixel-text">ควบคุม: ลูกศร = เดิน, N = สลับกลางวัน/คืน</div>
-    <div class="pixel-text">โหมดปัจจุบัน: <span id="mode-text">กลางวัน</span></div>
+    <div class="pixel-text">✨ สถานะ: <span id="mode-text" style="color:#ffda79; font-weight:bold;">กลางวัน (Sunlight)</span></div>
+</div>
+
+<div id="dialogue-box">...</div>
+
+<!-- คอนโทรลเลอร์สำหรับ iPad / สัมผัสหน้าจอ -->
+<div id="touch-controls">
+    <div id="joystick-zone">
+        <div id="joystick-knob"></div>
+    </div>
+    <div id="btn-toggle">☀️</div>
 </div>
 
 <script>
-    // --- ตั้งค่า Canvas ---
-    const canvas = document.getElementById('gameCanvas');
-    const ctx = canvas.getContext('2d');
-    const TILE_SIZE = 32;
+    // --- 1. ตั้งค่าฉาก 3D & Renderer ---
+    const container = document.getElementById('canvas-container');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xaaccff);
+    scene.fog = new THREE.FogExp2(0xaaccff, 0.025);
 
-    // --- การควบคุม ---
-    const keys = { left: false, right: false, up: false, down: false };
-    document.addEventListener('keydown', e => handleKey(e, true));
-    document.addEventListener('keyup', e => handleKey(e, false));
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 14, 18);
+    camera.lookAt(0, 0, 0);
 
-    function handleKey(e, isPressed) {
-        if (e.key === 'ArrowLeft') keys.left = isPressed;
-        if (e.key === 'ArrowRight') keys.right = isPressed;
-        if (e.key === 'ArrowUp') keys.up = isPressed;
-        if (e.key === 'ArrowDown') keys.down = isPressed;
-        if (isPressed && e.key.toLowerCase() === 'n') toggleDayNight();
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.2;
+    container.appendChild(renderer.domElement);
+
+    // --- 2. ระบบแสงไฟ (Lighting System) ---
+    const ambientLight = new THREE.AmbientLight(0xddeeff, 0.5);
+    scene.add(ambientLight);
+
+    const sunLight = new THREE.DirectionalLight(0xfffaed, 1.2);
+    sunLight.position.set(12, 24, 12);
+    sunLight.castShadow = true;
+    sunLight.shadow.mapSize.width = 1024;
+    sunLight.shadow.mapSize.height = 1024;
+    scene.add(sunLight);
+
+    const playerLight = new THREE.PointLight(0xffaa55, 0, 8);
+    playerLight.castShadow = true;
+    scene.add(playerLight);
+
+    const moonLight = new THREE.DirectionalLight(0x3355aa, 0);
+    moonLight.position.set(-10, 20, -10);
+    scene.add(moonLight);
+
+    // --- 3. พื้นทุ่งหญ้าและทางหินอ่อน ---
+    const grassGeo = new THREE.PlaneGeometry(50, 50);
+    const grassMat = new THREE.MeshStandardMaterial({ color: 0x3b8d2a, roughness: 0.8 });
+    const grass = new THREE.Mesh(grassGeo, grassMat);
+    grass.rotation.x = -Math.PI / 2;
+    grass.receiveShadow = true;
+    scene.add(grass);
+
+    const pathGeo = new THREE.BoxGeometry(6, 0.08, 50);
+    const pathMat = new THREE.MeshStandardMaterial({ color: 0xf0f0f0, roughness: 0.2 });
+    const stonePath = new THREE.Mesh(pathGeo, pathMat);
+    stonePath.position.set(0, 0.02, 0);
+    stonePath.receiveShadow = true;
+    scene.add(stonePath);
+
+    // --- 4. สร้าง Texture พิกเซลอาร์ต ---
+    function createPixelTexture(drawFn, width=32, height=32) {
+        const canvas = document.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingEnabled = false;
+        drawFn(ctx);
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.magFilter = THREE.NearestFilter;
+        texture.minFilter = THREE.NearestFilter;
+        return texture;
     }
 
-    // --- สถานะโลก ---
+    function createPixelSprite(texture, width, height) {
+        const geo = new THREE.PlaneGeometry(width, height);
+        const mat = new THREE.MeshStandardMaterial({ map: texture, transparent: true, alphaTest: 0.5, roughness: 0.5 });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.castShadow = true;
+        return mesh;
+    }
+
+    // สไปรท์ตัวละครกลางวัน / กลางคืน
+    const texDay = createPixelTexture(ctx => {
+        ctx.fillStyle = '#8B4513'; ctx.fillRect(8, 2, 16, 12);
+        ctx.fillStyle = '#111'; ctx.fillRect(10, 8, 12, 3);
+        ctx.fillStyle = '#FFF'; ctx.fillRect(6, 14, 20, 10);
+        ctx.fillStyle = '#E60000'; ctx.fillRect(14, 15, 4, 3);
+        ctx.fillStyle = '#222'; ctx.fillRect(8, 24, 16, 8);
+    });
+
+    const texNight = createPixelTexture(ctx => {
+        ctx.fillStyle = '#8B4513'; ctx.fillRect(6, 2, 20, 16);
+        ctx.fillStyle = '#FFB6C1'; ctx.fillRect(8, 16, 16, 12);
+        ctx.fillStyle = '#FFF'; ctx.fillRect(10, 28, 12, 4);
+    });
+
+    const playerMesh = createPixelSprite(texDay, 1.2, 1.8);
+    playerMesh.position.set(0, 0.9, 0);
+    scene.add(playerMesh);
+
+    // ดอกไม้พิกเซล
+    const flowerTex = createPixelTexture(ctx => {
+        ctx.fillStyle = '#FF3366'; ctx.fillRect(4, 4, 8, 8);
+        ctx.fillStyle = '#FFCC00'; ctx.fillRect(6, 6, 4, 4);
+        ctx.fillStyle = '#11aa33'; ctx.fillRect(7, 12, 2, 4);
+    }, 16, 16);
+
+    for(let i=0; i<40; i++) {
+        const flower = createPixelSprite(flowerTex, 0.5, 0.5);
+        let x = (Math.random() - 0.5) * 40;
+        if(Math.abs(x) < 3.5) x += 6;
+        flower.position.set(x, 0.25, (Math.random() - 0.5) * 40);
+        scene.add(flower);
+    }
+
+    // --- 5. หิ่งห้อย & ฝน ---
+    const firefliesGroup = new THREE.Group();
+    const fireflyLights = [];
+
+    for(let i=0; i<25; i++) {
+        const pGeo = new THREE.SphereGeometry(0.06, 8, 8);
+        const pMat = new THREE.MeshBasicMaterial({ color: 0xffff88 });
+        const pMesh = new THREE.Mesh(pGeo, pMat);
+        const pLight = new THREE.PointLight(0xffea00, 0, 4);
+        pMesh.add(pLight);
+
+        pMesh.position.set((Math.random() - 0.5) * 35, Math.random() * 2.5 + 0.5, (Math.random() - 0.5) * 35);
+        firefliesGroup.add(pMesh);
+        fireflyLights.push({ mesh: pMesh, light: pLight, seed: Math.random() * 100 });
+    }
+    scene.add(firefliesGroup);
+
+    const rainGeo = new THREE.BufferGeometry();
+    const rainPos = new Float32Array(150 * 3);
+    for(let i=0; i<150*3; i+=3) {
+        rainPos[i] = (Math.random() - 0.5) * 35;
+        rainPos[i+1] = Math.random() * 12;
+        rainPos[i+2] = (Math.random() - 0.5) * 35;
+    }
+    rainGeo.setAttribute('position', new THREE.BufferAttribute(rainPos, 3));
+    const rainMat = new THREE.PointsMaterial({ color: 0xddeeff, size: 0.12, transparent: true, opacity: 0.6 });
+    const rain = new THREE.Points(rainGeo, rainMat);
+    scene.add(rain);
+
+    // --- 6. ระบบบังคับสำหรับ iPad (Touch Joystick) ---
+    let moveVector = { x: 0, y: 0 };
+    const joystickZone = document.getElementById('joystick-zone');
+    const joystickKnob = document.getElementById('joystick-knob');
+
+    let joystickActive = false;
+    let touchId = null;
+    const centerPos = { x: 60, y: 60 };
+
+    function handleTouchStart(e) {
+        for(let touch of e.changedTouches) {
+            const rect = joystickZone.getBoundingClientRect();
+            if(touch.clientX >= rect.left && touch.clientX <= rect.right &&
+               touch.clientY >= rect.top && touch.clientY <= rect.bottom) {
+                joystickActive = true;
+                touchId = touch.identifier;
+                updateJoystick(touch, rect);
+            }
+        }
+    }
+
+    function handleTouchMove(e) {
+        if(!joystickActive) return;
+        for(let touch of e.touches) {
+            if(touch.identifier === touchId) {
+                const rect = joystickZone.getBoundingClientRect();
+                updateJoystick(touch, rect);
+            }
+        }
+    }
+
+    function handleTouchEnd(e) {
+        for(let touch of e.changedTouches) {
+            if(touch.identifier === touchId) {
+                joystickActive = false;
+                touchId = null;
+                moveVector = { x: 0, y: 0 };
+                joystickKnob.style.transform = `translate(0px, 0px)`;
+            }
+        }
+    }
+
+    function updateJoystick(touch, rect) {
+        let dx = touch.clientX - (rect.left + centerPos.x);
+        let dy = touch.clientY - (rect.top + centerPos.y);
+        let dist = Math.hypot(dx, dy);
+        let maxDist = 40;
+
+        if(dist > maxDist) {
+            dx = (dx / dist) * maxDist;
+            dy = (dy / dist) * maxDist;
+        }
+
+        joystickKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+        moveVector.x = dx / maxDist;
+        moveVector.y = dy / maxDist;
+    }
+
+    window.addEventListener('touchstart', handleTouchStart, {passive: false});
+    window.addEventListener('touchmove', handleTouchMove, {passive: false});
+    window.addEventListener('touchend', handleTouchEnd);
+
+    // คีย์บอร์ดเดิม
+    const keys = {};
+    window.addEventListener('keydown', e => {
+        keys[e.key] = true;
+        if(e.key.toLowerCase() === 'n') toggleDayNight();
+    });
+    window.addEventListener('keyup', e => keys[e.key] = false);
+
+    // ปุ่มกด toggle สำหรับ iPad
+    document.getElementById('btn-toggle').addEventListener('click', toggleDayNight);
+
+    // --- 7. ตรรกะสลับกลางวัน/กลางคืน ---
     let isNight = false;
-    let particles = []; // ฝน หรือ หิ่งห้อย
-    const modeText = document.getElementById('mode-text');
+    const playerSpeed = 0.12;
+
+    const dialoguesDay = ["แดดอบอุ่นจังเลย~", "ทุ่งหญ้าบน iPad ดูสวยมาก!", "เดินเล่นผ่อนคลายสบายใจ"];
+    const dialoguesNight = ["หิ่งห้อยเรืองแสงระยิบระยับ...", "บรรยากาศตอนกลางคืนสงบจัง", "ชุดนอนนี้นุ่มสบายมาก~"];
+    let dialogueTimer = 0;
 
     function toggleDayNight() {
         isNight = !isNight;
-        modeText.innerText = isNight ? "กลางคืน" : "กลางวัน";
-        modeText.style.color = isNight ? "#aaf" : "#ff0";
-        initParticles(); // สร้างอนุภาคใหม่เมื่อสลับโหมด
-    }
-
-    // --- คลาสตัวละคร (เนื่องจากสร้างเล่นๆ จะใช้รูปทรงเรขาคณิตแทนภาพพิกเซลจริง) ---
-    class Player {
-        constructor(x, y) {
-            this.x = x;
-            this.y = y;
-            this.width = TILE_SIZE;
-            this.height = TILE_SIZE * 1.5;
-            this.speed = 4;
-            this.dialogue = "";
-            this.dialogueTimer = 0;
-            
-            // บทพูด
-            this.talkDay = ["อากาศดีจัง!", "ทุ่งหญ้าสวยจัง", "เดินเล่นสอบเสร็จ!"];
-            this.talkNight = ["ง่วงนอนแล้วสิ...", "หิ่งห้อยสวยเนอะ", "ดาวเต็มฟ้าเลย"];
-        }
-
-        update() {
-            // เคลื่อนที่
-            if (keys.left) this.x -= this.speed;
-            if (keys.right) this.x += this.speed;
-            if (keys.up) this.y -= this.speed;
-            if (keys.down) this.y += this.speed;
-
-            // ชนขอบหน้าจอ
-            if (this.x < 0) this.x = 0;
-            if (this.y < 0) this.y = 0;
-            if (this.x + this.width > canvas.width) this.x = canvas.width - this.width;
-            if (this.y + this.height > canvas.height) this.y = canvas.height - this.height;
-
-            // สุ่มพูด
-            if (this.dialogueTimer > 0) {
-                this.dialogueTimer--;
-            } else {
-                this.dialogue = "";
-                if (Math.random() < 0.005) this.talk(); // มีโอกาสสุ่มพูดเล็กน้อย
-            }
-        }
-
-        draw() {
-            // วาดตัวละครแบบพิกเซล (สี่เหลี่ยมแทน)
-            ctx.save();
-            ctx.imageSmoothingEnabled = false;
-
-            if (!isNight) {
-                // ชุดมหาลัย (ร่างกลางวัน)
-                ctx.fillStyle = '#8B4513'; // ผมน้ำตาล
-                ctx.fillRect(this.x + 4, this.y, 24, 12); // ผม
-
-                ctx.fillStyle = '#FFF'; // เสื้อขาว
-                ctx.fillRect(this.x, this.y + 12, 32, 20);
-
-                ctx.fillStyle = '#A00'; // โบว์แดง (เล็กๆ)
-                ctx.fillRect(this.x + 12, this.y + 14, 8, 4);
-
-                ctx.fillStyle = '#000'; // แว่นดำ (เส้นตรง)
-                ctx.fillRect(this.x + 6, this.y + 6, 20, 3);
-            } else {
-                // ชุดนอน (ร่างกลางคืน - ปล่อยผม ไม่ใส่แว่น)
-                ctx.fillStyle = '#8B4513'; // ผมน้ำตาลยาว
-                ctx.fillRect(this.x, this.y, 32, 20); 
-
-                ctx.fillStyle = '#FFC0CB'; // ชุดนอนชมพู
-                ctx.fillRect(this.x + 2, this.y + 20, 28, 20); 
-            }
-            ctx.restore();
-
-            // วาดบทพูด
-            if (this.dialogue) {
-                this.drawDialogue();
-            }
-        }
-
-        talk() {
-            const list = isNight ? this.talkNight : this.talkDay;
-            this.dialogue = list[Math.floor(Math.random() * list.length)];
-            this.dialogueTimer = 180; // แสดง 3 วินาที (60fps)
-        }
-
-        drawDialogue() {
-            ctx.fillStyle = 'white';
-            ctx.font = '16px Courier New';
-            ctx.textAlign = 'center';
-            const textWidth = ctx.measureText(this.dialogue).width;
-            
-            // กล่องข้อความ
-            ctx.fillStyle = 'rgba(0,0,0,0.8)';
-            ctx.fillRect(this.x + this.width/2 - textWidth/2 - 10, this.y - 40, textWidth + 20, 30);
-            
-            // ข้อความ
-            ctx.fillStyle = 'white';
-            ctx.fillText(this.dialogue, this.x + this.width/2, this.y - 20);
-        }
-    }
-
-    // --- ระบบอนุภาค (ฝน/หิ่งห้อย) ---
-    class Particle {
-        constructor() {
-            this.init();
-        }
-
-        init() {
-            this.x = Math.random() * canvas.width;
-            this.y = Math.random() * canvas.height;
-            if (isNight) {
-                // หิ่งห้อย
-                this.size = Math.random() * 2 + 1;
-                this.speedX = Math.random() * 1 - 0.5;
-                this.speedY = Math.random() * 1 - 0.5;
-                this.alpha = Math.random() * 0.5 + 0.5;
-            } else {
-                // ฝน
-                this.size = Math.random() * 1 + 1;
-                this.speedY = Math.random() * 5 + 5;
-                this.length = Math.random() * 10 + 5;
-            }
-        }
-
-        update() {
-            if (isNight) {
-                // เคลื่อนที่ช้าๆ สุ่มๆ
-                this.x += this.speedX;
-                this.y += this.speedY;
-                // แสงกะพริบ
-                this.alpha += Math.random() * 0.1 - 0.05;
-                if (this.alpha < 0.2) this.alpha = 0.2;
-                if (this.alpha > 1) this.alpha = 1;
-            } else {
-                // ตกลงมา
-                this.y += this.speedY;
-                if (this.y > canvas.height) this.y = -20;
-            }
-            // ชนขอบสุ่มใหม่
-            if (this.x < 0 || this.x > canvas.width) this.x = Math.random() * canvas.width;
-        }
-
-        draw() {
-            ctx.save();
-            if (isNight) {
-                ctx.globalAlpha = this.alpha;
-                ctx.fillStyle = '#FFFF99'; // แสงหิ่งห้อยสลัว
-                ctx.fillRect(this.x, this.y, this.size, this.size);
-            } else {
-                ctx.strokeStyle = '#AAF'; // สีฝน
-                ctx.beginPath();
-                ctx.moveTo(this.x, this.y);
-                ctx.lineTo(this.x, this.y + this.length);
-                ctx.stroke();
-            }
-            ctx.restore();
-        }
-    }
-
-    // --- สร้างโลก ---
-    const player = new Player(canvas.width / 2, canvas.height / 2);
-    const flowers = [];
-    for (let i = 0; i < 30; i++) {
-        flowers.push({
-            x: Math.random() * canvas.width,
-            y: Math.random() * canvas.height,
-            color: `hsl(${Math.random() * 360}, 70%, 70%)`
-        });
-    }
-
-    function initParticles() {
-        particles = [];
-        const num = isNight ? 50 : 100;
-        for (let i = 0; i < num; i++) {
-            particles.push(new Particle());
-        }
-    }
-    initParticles(); // เริ่มต้นด้วยฝน
-
-    // --- ลูปเกม ---
-    function gameLoop() {
-        // 1. อัปเดต
-        player.update();
-        particles.forEach(p => p.update());
-
-        // 2. วาด
-        // พื้นหลัง (สลับสีตามโหมด)
-        ctx.fillStyle = isNight ? '#0A0A32' : '#87CEEB';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        // ทุ่งหญ้าพิกเซล (สี่เหลี่ยมหญ้าสุ่ม)
-        ctx.fillStyle = isNight ? '#1A4D1A' : '#228B22'; // หญ้าสีเข้มตอนกลางคืน
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        const modeText = document.getElementById('mode-text');
+        const btn = document.getElementById('btn-toggle');
         
-        ctx.save();
-        ctx.globalAlpha = 0.5;
-        ctx.fillStyle = isNight ? '#1F5A1F' : '#32CD32';
-        for(let i=0; i<100; i++) {
-            // วาดหญ้าพิกเซลแบบสุ่ม
-            ctx.fillRect((i * 73) % canvas.width, (i * 91) % canvas.height, TILE_SIZE, TILE_SIZE);
+        if(isNight) {
+            scene.background.setHex(0x050515);
+            scene.fog.color.setHex(0x050515);
+            ambientLight.intensity = 0.15;
+            sunLight.intensity = 0;
+            moonLight.intensity = 0.4;
+            playerLight.intensity = 2.0;
+            playerMesh.material.map = texNight;
+            rainMat.opacity = 0;
+            
+            fireflyLights.forEach(f => f.light.intensity = 1.2);
+            modeText.innerText = "กลางคืน (Firefly Lights)";
+            modeText.style.color = "#ffeaa7";
+            btn.innerText = "🌙";
+        } else {
+            scene.background.setHex(0xaaccff);
+            scene.fog.color.setHex(0xaaccff);
+            ambientLight.intensity = 0.5;
+            sunLight.intensity = 1.2;
+            moonLight.intensity = 0;
+            playerLight.intensity = 0;
+            playerMesh.material.map = texDay;
+            rainMat.opacity = 0.6;
+            
+            fireflyLights.forEach(f => f.light.intensity = 0);
+            modeText.innerText = "กลางวัน (Sunlight)";
+            modeText.style.color = "#ffda79";
+            btn.innerText = "☀️";
         }
-        ctx.restore();
-
-        // ดอกไม้
-        flowers.forEach(f => {
-            ctx.fillStyle = f.color;
-            ctx.fillRect(f.x, f.y, 8, 8);
-        });
-
-        // ทางหินอ่อน (แถบยาวตรงกลาง)
-        ctx.fillStyle = isNight ? '#A0A0A0' : '#E0E0E0';
-        ctx.fillRect(0, canvas.height / 2, canvas.width, TILE_SIZE * 2);
-
-        // วาดอนุภาค (อยู่หลังตัวละคร)
-        particles.forEach(p => p.draw());
-
-        // ตัวละคร
-        player.draw();
-
-        // 3. วาดเอฟเฟกต์ไฟสลัว (ถ้าเป็นกลางคืน)
-        if (isNight) {
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.3)'; // กรองแสงสีดำโปร่งแสง
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-        }
-
-        requestAnimationFrame(gameLoop);
+        triggerDialogue();
     }
 
-    // เริ่มเกม
-    gameLoop();
-</script>
+    function triggerDialogue() {
+        const list = isNight ? dialoguesNight : dialoguesDay;
+        const text = list[Math.floor(Math.random() * list.length)];
+        const box = document.getElementById('dialogue-box');
+        box.innerText = text;
+        box.style.display = 'block';
+        dialogueTimer = 180;
+    }
 
+    // --- 8. Animation Loop ---
+    function animate() {
+        requestAnimationFrame(animate);
+
+        // การเคลื่อนที่ (รองรับทั้ง คีย์บอร์ด และ Touch Joystick)
+        let vx = moveVector.x;
+        let vz = moveVector.y;
+
+        if (keys['ArrowLeft']) vx = -1;
+        if (keys['ArrowRight']) vx = 1;
+        if (keys['ArrowUp']) vz = -1;
+        if (keys['ArrowDown']) vz = 1;
+
+        playerMesh.position.x += vx * playerSpeed;
+        playerMesh.position.z += vz * playerSpeed;
+
+        playerMesh.position.x = Math.max(-20, Math.min(20, playerMesh.position.x));
+        playerMesh.position.z = Math.max(-20, Math.min(20, playerMesh.position.z));
+
+        playerLight.position.set(playerMesh.position.x, playerMesh.position.y + 0.5, playerMesh.position.z);
+
+        camera.position.x += (playerMesh.position.x - camera.position.x) * 0.05;
+        camera.position.z += (playerMesh.position.z + 14 - camera.position.z) * 0.05;
+
+        // หิ่งห้อย & ฝน
+        if(isNight) {
+            const time = Date.now() * 0.0015;
+            fireflyLights.forEach((f) => {
+                f.mesh.position.y += Math.sin(time + f.seed) * 0.008;
+                f.mesh.position.x += Math.cos(time + f.seed) * 0.005;
+                f.light.intensity = 1.0 + Math.sin(time * 3 + f.seed) * 0.5;
+            });
+        } else {
+            const positions = rain.geometry.attributes.position.array;
+            for(let i=1; i<positions.length; i+=3) {
+                positions[i] -= 0.35;
+                if(positions[i] < 0) positions[i] = 12;
+            }
+            rain.geometry.attributes.position.needsUpdate = true;
+        }
+
+        if(dialogueTimer > 0) {
+            dialogueTimer--;
+            if(dialogueTimer === 0) document.getElementById('dialogue-box').style.display = 'none';
+        }
+
+        renderer.render(scene, camera);
+    }
+
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    animate();
+</script>
 </body>
 </html>
