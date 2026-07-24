@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pixel Life 🌸🌙</title>
+    <style>
+        body { margin: 0; background: #333; display: flex; justify-content: center; align-items: center; height: 100vh; color: white; font-family: 'Courier New', Courier, monospace; overflow: hidden; }
+        #gameCanvas { border: 4px solid #fff; image-rendering: pixelated; background: #87CEEB; }
+        #ui-overlay { position: absolute; top: 20px; left: 20px; background: rgba(0,0,0,0.7); padding: 10px; border-radius: 5px; pointer-events: none; }
+        .pixel-text { font-size: 16px; }
+    </style>
+</head>
+<body>
+
+<canvas id="gameCanvas" width="800" height="600"></canvas>
+
+<div id="ui-overlay">
+    <div class="pixel-text">ควบคุม: ลูกศร = เดิน, N = สลับกลางวัน/คืน</div>
+    <div class="pixel-text">โหมดปัจจุบัน: <span id="mode-text">กลางวัน</span></div>
+</div>
+
+<script>
+    // --- ตั้งค่า Canvas ---
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const TILE_SIZE = 32;
+
+    // --- การควบคุม ---
+    const keys = { left: false, right: false, up: false, down: false };
+    document.addEventListener('keydown', e => handleKey(e, true));
+    document.addEventListener('keyup', e => handleKey(e, false));
+
+    function handleKey(e, isPressed) {
+        if (e.key === 'ArrowLeft') keys.left = isPressed;
+        if (e.key === 'ArrowRight') keys.right = isPressed;
+        if (e.key === 'ArrowUp') keys.up = isPressed;
+        if (e.key === 'ArrowDown') keys.down = isPressed;
+        if (isPressed && e.key.toLowerCase() === 'n') toggleDayNight();
+    }
+
+    // --- สถานะโลก ---
+    let isNight = false;
+    let particles = []; // ฝน หรือ หิ่งห้อย
+    const modeText = document.getElementById('mode-text');
+
+    function toggleDayNight() {
+        isNight = !isNight;
+        modeText.innerText = isNight ? "กลางคืน" : "กลางวัน";
+        modeText.style.color = isNight ? "#aaf" : "#ff0";
+        initParticles(); // สร้างอนุภาคใหม่เมื่อสลับโหมด
+    }
+
+    // --- คลาสตัวละคร (เนื่องจากสร้างเล่นๆ จะใช้รูปทรงเรขาคณิตแทนภาพพิกเซลจริง) ---
+    class Player {
+        constructor(x, y) {
+            this.x = x;
+            this.y = y;
+            this.width = TILE_SIZE;
+            this.height = TILE_SIZE * 1.5;
+            this.speed = 4;
+            this.dialogue = "";
+            this.dialogueTimer = 0;
+            
+            // บทพูด
+            this.talkDay = ["อากาศดีจัง!", "ทุ่งหญ้าสวยจัง", "เดินเล่นสอบเสร็จ!"];
+            this.talkNight = ["ง่วงนอนแล้วสิ...", "หิ่งห้อยสวยเนอะ", "ดาวเต็มฟ้าเลย"];
+        }
+
+        update() {
+            // เคลื่อนที่
+            if (keys.left) this.x -= this.speed;
+            if (keys.right) this.x += this.speed;
+            if (keys.up) this.y -= this.speed;
+            if (keys.down) this.y += this.speed;
+
+            // ชนขอบหน้าจอ
+            if (this.x < 0) this.x = 0;
+            if (this.y < 0) this.y = 0;
+            if (this.x + this.width > canvas.width) this.x = canvas.width - this.width;
+            if (this.y + this.height > canvas.height) this.y = canvas.height - this.height;
+
+            // สุ่มพูด
+            if (this.dialogueTimer > 0) {
+                this.dialogueTimer--;
+            } else {
+                this.dialogue = "";
+                if (Math.random() < 0.005) this.talk(); // มีโอกาสสุ่มพูดเล็กน้อย
+            }
+        }
+
+        draw() {
+            // วาดตัวละครแบบพิกเซล (สี่เหลี่ยมแทน)
+            ctx.save();
+            ctx.imageSmoothingEnabled = false;
+
+            if (!isNight) {
+                // ชุดมหาลัย (ร่างกลางวัน)
+                ctx.fillStyle = '#8B4513'; // ผมน้ำตาล
+                ctx.fillRect(this.x + 4, this.y, 24, 12); // ผม
+
+                ctx.fillStyle = '#FFF'; // เสื้อขาว
+                ctx.fillRect(this.x, this.y + 12, 32, 20);
+
+                ctx.fillStyle = '#A00'; // โบว์แดง (เล็กๆ)
+                ctx.fillRect(this.x + 12, this.y + 14, 8, 4);
+
+                ctx.fillStyle = '#000'; // แว่นดำ (เส้นตรง)
+                ctx.fillRect(this.x + 6, this.y + 6, 20, 3);
+            } else {
+                // ชุดนอน (ร่างกลางคืน - ปล่อยผม ไม่ใส่แว่น)
+                ctx.fillStyle = '#8B4513'; // ผมน้ำตาลยาว
+                ctx.fillRect(this.x, this.y, 32, 20); 
+
+                ctx.fillStyle = '#FFC0CB'; // ชุดนอนชมพู
+                ctx.fillRect(this.x + 2, this.y + 20, 28, 20); 
+            }
+            ctx.restore();
+
+            // วาดบทพูด
+            if (this.dialogue) {
+                this.drawDialogue();
+            }
+        }
+
+        talk() {
+            const list = isNight ? this.talkNight : this.talkDay;
+            this.dialogue = list[Math.floor(Math.random() * list.length)];
+            this.dialogueTimer = 180; // แสดง 3 วินาที (60fps)
+        }
+
+        drawDialogue() {
+            ctx.fillStyle = 'white';
+            ctx.font = '16px Courier New';
+            ctx.textAlign = 'center';
+            const textWidth = ctx.measureText(this.dialogue).width;
+            
+            // กล่องข้อความ
+            ctx.fillStyle = 'rgba(0,0,0,0.8)';
+            ctx.fillRect(this.x + this.width/2 - textWidth/2 - 10, this.y - 40, textWidth + 20, 30);
+            
+            // ข้อความ
+            ctx.fillStyle = 'white';
+            ctx.fillText(this.dialogue, this.x + this.width/2, this.y - 20);
+        }
+    }
+
+    // --- ระบบอนุภาค (ฝน/หิ่งห้อย) ---
+    class Particle {
+        constructor() {
+            this.init();
+        }
+
+        init() {
+            this.x = Math.random() * canvas.width;
+            this.y = Math.random() * canvas.height;
+            if (isNight) {
+                // หิ่งห้อย
+                this.size = Math.random() * 2 + 1;
+                this.speedX = Math.random() * 1 - 0.5;
+                this.speedY = Math.random() * 1 - 0.5;
+                this.alpha = Math.random() * 0.5 + 0.5;
+            } else {
+                // ฝน
+                this.size = Math.random() * 1 + 1;
+                this.speedY = Math.random() * 5 + 5;
+                this.length = Math.random() * 10 + 5;
+            }
+        }
+
+        update() {
+            if (isNight) {
+                // เคลื่อนที่ช้าๆ สุ่มๆ
+                this.x += this.speedX;
+                this.y += this.speedY;
+                // แสงกะพริบ
+                this.alpha += Math.random() * 0.1 - 0.05;
+                if (this.alpha < 0.2) this.alpha = 0.2;
+                if (this.alpha > 1) this.alpha = 1;
+            } else {
+                // ตกลงมา
+                this.y += this.speedY;
+                if (this.y > canvas.height) this.y = -20;
+            }
+            // ชนขอบสุ่มใหม่
+            if (this.x < 0 || this.x > canvas.width) this.x = Math.random() * canvas.width;
+        }
+
+        draw() {
+            ctx.save();
+            if (isNight) {
+                ctx.globalAlpha = this.alpha;
+                ctx.fillStyle = '#FFFF99'; // แสงหิ่งห้อยสลัว
+                ctx.fillRect(this.x, this.y, this.size, this.size);
+            } else {
+                ctx.strokeStyle = '#AAF'; // สีฝน
+                ctx.beginPath();
+                ctx.moveTo(this.x, this.y);
+                ctx.lineTo(this.x, this.y + this.length);
+                ctx.stroke();
+            }
+            ctx.restore();
+        }
+    }
+
+    // --- สร้างโลก ---
+    const player = new Player(canvas.width / 2, canvas.height / 2);
+    const flowers = [];
+    for (let i = 0; i < 30; i++) {
+        flowers.push({
+            x: Math.random() * canvas.width,
+            y: Math.random() * canvas.height,
+            color: `hsl(${Math.random() * 360}, 70%, 70%)`
+        });
+    }
+
+    function initParticles() {
+        particles = [];
+        const num = isNight ? 50 : 100;
+        for (let i = 0; i < num; i++) {
+            particles.push(new Particle());
+        }
+    }
+    initParticles(); // เริ่มต้นด้วยฝน
+
+    // --- ลูปเกม ---
+    function gameLoop() {
+        // 1. อัปเดต
+        player.update();
+        particles.forEach(p => p.update());
+
+        // 2. วาด
+        // พื้นหลัง (สลับสีตามโหมด)
+        ctx.fillStyle = isNight ? '#0A0A32' : '#87CEEB';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // ทุ่งหญ้าพิกเซล (สี่เหลี่ยมหญ้าสุ่ม)
+        ctx.fillStyle = isNight ? '#1A4D1A' : '#228B22'; // หญ้าสีเข้มตอนกลางคืน
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        ctx.save();
+        ctx.globalAlpha = 0.5;
+        ctx.fillStyle = isNight ? '#1F5A1F' : '#32CD32';
+        for(let i=0; i<100; i++) {
+            // วาดหญ้าพิกเซลแบบสุ่ม
+            ctx.fillRect((i * 73) % canvas.width, (i * 91) % canvas.height, TILE_SIZE, TILE_SIZE);
+        }
+        ctx.restore();
+
+        // ดอกไม้
+        flowers.forEach(f => {
+            ctx.fillStyle = f.color;
+            ctx.fillRect(f.x, f.y, 8, 8);
+        });
+
+        // ทางหินอ่อน (แถบยาวตรงกลาง)
+        ctx.fillStyle = isNight ? '#A0A0A0' : '#E0E0E0';
+        ctx.fillRect(0, canvas.height / 2, canvas.width, TILE_SIZE * 2);
+
+        // วาดอนุภาค (อยู่หลังตัวละคร)
+        particles.forEach(p => p.draw());
+
+        // ตัวละคร
+        player.draw();
+
+        // 3. วาดเอฟเฟกต์ไฟสลัว (ถ้าเป็นกลางคืน)
+        if (isNight) {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.3)'; // กรองแสงสีดำโปร่งแสง
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+
+        requestAnimationFrame(gameLoop);
+    }
+
+    // เริ่มเกม
+    gameLoop();
+</script>
+
+</body>
+</html>
